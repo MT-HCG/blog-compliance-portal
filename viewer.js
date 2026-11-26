@@ -57,7 +57,7 @@ function renderPilotStatus(state,reviewState="NOT_CONNECTED"){
  const states={NO_ENABLED_TEXT_RULES:"法令基準の有効化待ち",SCOPED_TEXT_REVIEW:"価格・景品の本文限定・資料確認。総合監査未完了",LOCAL_MODEL_NOT_APPROVED:"判定モデルの検証待ち",RULE_SET_CHANGED:"基準変更により中断",PRIMARY_TEXT_ONLY:"本文一次判定のみ・総合監査未完了"};
  if(!Object.hasOwn(states,state))throw Error();
  const root=byId("detail"),h=document.createElement("h2"),p=document.createElement("p"),table=document.createElement("table");
- h.textContent="運用状況";p.textContent="実サイトの限定巡回結果です。対象は1回6拠点で、過去記事の網羅性は未確認です。日時は取得元の実行完了時刻です。";
+ h.textContent="運用状況";p.textContent="実サイトの限定巡回結果です。対象は1回6拠点で、過去記事の網羅性は未確認です。新規・更新の確認も限定範囲です。日時は取得元の実行完了時刻です。";
  const rows=[["工程","状態"],["ブログ取得","限定巡回・非公開DBへ保存"],["法令監査",states[state]],["画像監査","未完了"],["HCG確認・是正管理",reviewState==="GITHUB_HCG_ACTIONS"?"認証済みGitHubで対応記録可能・確認未完了":"未連携"],["OneDrive転送","未連携"]];
  rows.forEach((row,i)=>{const tr=document.createElement("tr");row.forEach(value=>{const cell=document.createElement(i===0?"th":"td");cell.textContent=value;if(i===0)cell.scope="col";tr.append(cell)});table.append(tr)});root.append(h,p,table);
  if(reviewState==="GITHUB_HCG_ACTIONS"){const a=document.createElement("a");a.textContent="管理者：GitHubで確認・対応を記録";a.href="https://github.com/MT-HCG/blog-compliance-monitor/actions/workflows/review-action.yml";a.rel="noreferrer";root.append(a);}
