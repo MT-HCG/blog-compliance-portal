@@ -2,13 +2,24 @@
 const byId=id=>document.getElementById(id);
 const bytes=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
 let epoch=0;
+let retryPass="";
+function takeKey(){
+ const match=/(?:^#|&)k=([^&]+)/.exec(location.hash);
+ if(!match)return "";
+ try{return decodeURIComponent(match[1]).trim();}catch{return match[1].trim();}
+}
 async function openData(pass){
- const current=++epoch;byId("data").replaceChildren();byId("detail").replaceChildren();byId("lock").hidden=true;byId("status").textContent="読み込み中";
+ pass=String(pass??"").trim();retryPass=pass;
+ const current=++epoch;byId("data").replaceChildren();byId("detail").replaceChildren();byId("lock").hidden=true;byId("retry").hidden=true;byId("view-gate").hidden=true;byId("status").textContent="読み込み中";
+ let networkFailure=false;
  try{
   if(!/^[A-Za-z0-9_-]{30,128}$/.test(pass.trim()))throw Error();
-  const r=await fetch("blog-data.enc.json",{cache:"no-store",credentials:"omit",redirect:"error"});
-  if(!r.ok)throw Error();
-  const raw=await r.text();
+  let r,raw;
+  try{
+   r=await fetch("blog-data.enc.json",{cache:"no-store",credentials:"omit",redirect:"error"});
+   if(!r.ok)throw Error();
+   raw=await r.text();
+  }catch{networkFailure=true;throw Error();}
   if(raw.length>2100000)throw Error();
   const e=JSON.parse(raw);
   if(!e||typeof e!=="object"||typeof e.salt!=="string"||typeof e.iv!=="string"||typeof e.data!=="string")throw Error();
@@ -25,12 +36,14 @@ async function openData(pass){
   for(const m of d.metrics){const a=document.createElement("article"),s=document.createElement("strong");a.textContent=String(m.label);s.textContent=String(m.value);a.append(s);byId("data").append(a);}
   byId("status").textContent=(d.scope==="FIXTURE"?"架空試験データ":d.scope==="PILOT_AGGREGATE"?"限定巡回の実測集計・法令監査未完了":"承認済み集計")+" / "+d.as_of+"\n0件は違反なしを意味しません。";
   byId("lock").hidden=false;
- }catch{if(current===epoch){byId("data").replaceChildren();byId("detail").replaceChildren();byId("lock").hidden=true;byId("status").textContent="復号できません。合言葉または公開データを確認してください。";}}
+ }catch{if(current===epoch){byId("data").replaceChildren();byId("detail").replaceChildren();byId("lock").hidden=true;byId("view-gate").hidden=false;byId("retry").hidden=!retryPass;byId("status").textContent=networkFailure?"データを読み込めません。通信状態を確認して、もう一度読み込んでください。":"合言葉が違います。アイコンが古い場合は、管理者から新しい ZIP を受け取ってください。";}}
 }
-byId("unlock").addEventListener("submit",e=>{e.preventDefault();const p=byId("key").value;byId("key").value="";openData(p);});
-byId("lock").onclick=()=>{++epoch;byId("data").replaceChildren();byId("detail").replaceChildren();byId("status").textContent="閉じました";byId("lock").hidden=true;};
-const fragment=new URLSearchParams(location.hash.slice(1)).get("k");
-if(fragment){history.replaceState(null,"",location.pathname+location.search);openData(fragment);}
+byId("unlock").addEventListener("submit",e=>{e.preventDefault();const p=byId("key").value;byId("key").value="";return openData(p);});
+byId("retry").onclick=()=>openData(retryPass);
+byId("lock").onclick=()=>{++epoch;retryPass="";byId("data").replaceChildren();byId("detail").replaceChildren();byId("status").textContent="閉じました";byId("lock").hidden=true;byId("retry").hidden=true;byId("view-gate").hidden=false;};
+// Preserve the fragment so a subsequently saved home-screen icon retains its key.
+const fragment=takeKey();
+const startup=fragment?openData(fragment):Promise.resolve();
 
 function renderFixtureStatus(){
  const root=byId("detail"),h=document.createElement("h2"),p=document.createElement("p"),table=document.createElement("table");
