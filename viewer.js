@@ -17,12 +17,13 @@ async function openData(pass){
   const key=await crypto.subtle.deriveKey({name:"PBKDF2",hash:"SHA-256",salt:bytes(e.salt),iterations:310000},base,{name:"AES-GCM",length:256},false,["decrypt"]);
   const d=JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name:"AES-GCM",iv:bytes(e.iv)},key,bytes(e.data))));
   if(!d||typeof d!=="object"||typeof d.as_of!=="string"||d.as_of.length>160)throw Error();
-  if(d.schema!==1||!["FIXTURE","APPROVED_AGGREGATE"].includes(d.scope)||!Array.isArray(d.metrics))throw Error();
+  if(d.schema!==1||!["FIXTURE","APPROVED_AGGREGATE","PILOT_AGGREGATE"].includes(d.scope)||!Array.isArray(d.metrics))throw Error();
   if(current!==epoch)return;
   if(d.metrics.length>30||d.metrics.some(m=>!m||typeof m!=="object"||typeof m.label!=="string"||m.label.length>120||!Number.isSafeInteger(m.value)||m.value<0))throw Error();
   if(d.scope==="FIXTURE")renderFixtureStatus();
+  if(d.scope==="PILOT_AGGREGATE")renderPilotStatus(d.audit_state);
   for(const m of d.metrics){const a=document.createElement("article"),s=document.createElement("strong");a.textContent=String(m.label);s.textContent=String(m.value);a.append(s);byId("data").append(a);}
-  byId("status").textContent=(d.scope==="FIXTURE"?"架空試験データ":"承認済み集計")+" / "+d.as_of+"\n0件は違反なしを意味しません。";
+  byId("status").textContent=(d.scope==="FIXTURE"?"架空試験データ":d.scope==="PILOT_AGGREGATE"?"限定巡回の実測集計・法令監査未完了":"承認済み集計")+" / "+d.as_of+"\n0件は違反なしを意味しません。";
   byId("lock").hidden=false;
  }catch{if(current===epoch){byId("data").replaceChildren();byId("detail").replaceChildren();byId("lock").hidden=true;byId("status").textContent="復号できません。合言葉または公開データを確認してください。";}}
 }
@@ -35,5 +36,14 @@ function renderFixtureStatus(){
  const root=byId("detail"),h=document.createElement("h2"),p=document.createElement("p"),table=document.createElement("table");
  h.textContent="運用状況";p.textContent="開発試験中。実監査の実行・判定・転送結果は未連携です。";
  const rows=[["工程","状態"],["対象ブランド・拠点","構成確認用"],["ブログ取得","未連携"],["監査判定・指摘","未連携"],["HCG確認・是正管理","未連携"],["OneDrive転送","未連携"]];
+ rows.forEach((row,i)=>{const tr=document.createElement("tr");row.forEach(value=>{const cell=document.createElement(i===0?"th":"td");cell.textContent=value;if(i===0)cell.scope="col";tr.append(cell)});table.append(tr)});root.append(h,p,table);
+}
+
+function renderPilotStatus(state){
+ const states={NO_ENABLED_TEXT_RULES:"法令基準の有効化待ち",LOCAL_MODEL_NOT_APPROVED:"判定モデルの検証待ち",RULE_SET_CHANGED:"基準変更により中断",PRIMARY_TEXT_ONLY:"本文一次判定のみ・総合監査未完了"};
+ if(!Object.hasOwn(states,state))throw Error();
+ const root=byId("detail"),h=document.createElement("h2"),p=document.createElement("p"),table=document.createElement("table");
+ h.textContent="運用状況";p.textContent="実サイトの限定巡回結果です。対象は1回6拠点で、過去記事の網羅性は未確認です。日時は取得元の実行完了時刻です。";
+ const rows=[["工程","状態"],["ブログ取得","限定巡回・非公開DBへ保存"],["法令監査",states[state]],["画像監査","未完了"],["HCG確認・是正管理","未連携"],["OneDrive転送","未連携"]];
  rows.forEach((row,i)=>{const tr=document.createElement("tr");row.forEach(value=>{const cell=document.createElement(i===0?"th":"td");cell.textContent=value;if(i===0)cell.scope="col";tr.append(cell)});table.append(tr)});root.append(h,p,table);
 }
