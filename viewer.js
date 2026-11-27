@@ -76,7 +76,8 @@ function renderHealth(health,asOf){
  p.textContent=states[health.state]+"。"+(health.schedule_enabled?"定期巡回の設定は有効です（実行成功の保証ではありません）。":"自動巡回は無効です。")+(health.report_state==="AVAILABLE"?"集計は最後に保存できた巡回結果です。":"監査集計を取得できません。過去の件数や0件で代用していません。");
  const timing=document.createElement("p");timing.textContent="状況の取得日時："+new Date(checked).toLocaleString("ja-JP",{timeZone:"Asia/Tokyo"})+" JST"+(attempted===null?"":" ／ 直近の実行開始："+new Date(attempted).toLocaleString("ja-JP",{timeZone:"Asia/Tokyo"})+" JST");
  root.append(heading,p,timing);
- const link=document.createElement("a");link.textContent="管理者：GitHubで巡回の実行履歴を確認";link.href="https://github.com/MT-HCG/blog-compliance-monitor/actions/workflows/bounded-pilot.yml";link.rel="noreferrer";root.append(link);
+ const link=document.createElement("a");link.textContent="検出の詳細・実行履歴（GitHub認証）";link.href="https://github.com/MT-HCG/blog-compliance-monitor/actions/workflows/bounded-pilot.yml";link.rel="noreferrer";root.append(link);
+ const help=document.createElement("p");help.textContent="直近の成功した実行の成果物 bounded-blog-pilot を取得し、monitor.html を開くと記事別の検出内容を確認できます。";root.append(help);
  const now=Date.now(),date=/^(\d{4})\/(\d{2})\/(\d{2}) (\d{2}):(\d{2}) JST$/.exec(asOf);
  let dataTime=null;
  if(date)dataTime=Date.parse(`${date[1]}-${date[2]}-${date[3]}T${date[4]}:${date[5]}:00+09:00`);
