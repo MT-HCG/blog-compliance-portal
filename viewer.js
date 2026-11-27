@@ -88,3 +88,59 @@ function renderHealth(health,asOf){
  if(date)dataTime=Date.parse(`${date[1]}-${date[2]}-${date[3]}T${date[4]}:${date[5]}:00+09:00`);
  if(now-checked>36*3600000||dataTime!==null&&now-dataTime>36*3600000){const warning=document.createElement("p");warning.textContent="36時間以上更新されていない情報があります。現在の稼働状況として扱わず、GitHubの実行履歴を確認してください。";root.append(warning);}
 }
+
+/* Private snapshot stays in browser memory. Never publish or transmit its contents. */
+function mountPrivateSnapshot(){
+ const root=byId("private-snapshot");
+ if(!root)return;
+ const file=byId("private-file"), status=byId("private-status"), output=byId("private-output"), search=byId("private-search"), rule=byId("private-rule"), review=byId("private-review");
+ const coverage=byId("private-coverage");
+ let rows=[], serial=0;
+ const labels=(node,value)=>{const e=document.createElement("p");e.textContent=value;node.append(e);};
+ function render(){
+  output.replaceChildren();
+  const q=search.value.normalize("NFKC").toLowerCase().trim();
+  const filtered=rows.filter(x=>(!rule.value||x.rule===rule.value)&&(!review.value||x.status===review.value)&&(!q||[x.store,x.article,x.rule,x.finding_id].join(" ").normalize("NFKC").toLowerCase().includes(q)));
+  labels(output,filtered.length+" / "+rows.length+" 件");
+  for(const x of filtered){
+   const panel=document.createElement("details"),heading=document.createElement("summary"),body=document.createElement("pre");
+   heading.textContent=x.store+" ／ "+x.rule+" ／ "+x.status;
+   body.textContent=x.section;
+   panel.append(heading,body);output.append(panel);
+  }
+ }
+ function choices(node,values){node.replaceChildren();for(const v of ["",...new Set(values)]){const o=document.createElement("option");o.value=v;o.textContent=v||"すべて";node.append(o);}}
+ function clear(){++serial;rows=[];file.value="";output.replaceChildren();coverage.replaceChildren();choices(rule,[]);choices(review,[]);status.textContent="非公開詳細は未読込です。";}
+ byId("private-clear").addEventListener("click",clear);
+ for(const node of [search,rule,review])node.addEventListener(node===search?"input":"change",render);
+ file.addEventListener("change",async()=>{
+  const chosen=file.files?.[0],current=++serial;
+  rows=[];output.replaceChildren();choices(rule,[]);choices(review,[]);
+  try{
+   if(!chosen||chosen.size>10000000)throw Error();
+   const d=JSON.parse(await chosen.text());
+   if(current!==serial)return;
+   if(d.schema!==1||d.scope!=="PRIVATE_BLOG_DETAILS"||d.repository!=="MT-HCG/blog-compliance-monitor"||!Array.isArray(d.pages)||d.pages.length>200)throw Error();
+   const next=[];
+   for(const page of d.pages){
+    if(!Array.isArray(page.entries)||page.entries.length>10||typeof page.body!=="string")throw Error();
+    for(const x of page.entries){
+     if(!/^[0-9a-f]{32}$/.test(x.finding_id)||["store","article","rule","status"].some(k=>typeof x[k]!=="string"))throw Error();
+     const marker="## 候補 "+x.finding_id;
+     const start=page.body.indexOf(marker);
+     if(start<0)throw Error();
+     const end=page.body.indexOf("\n## 候補 ",start+marker.length);
+     next.push({...x,section:page.body.slice(start,end<0?undefined:end)});
+    }
+   }
+   if(next.length!==d.finding_count||new Set(next.map(x=>x.finding_id)).size!==next.length)throw Error();
+   if(!Array.isArray(d.coverage)||d.coverage.length!==66||d.coverage.some(x=>!x||["brand","store","status","last_attempt","last_success"].some(k=>typeof x[k]!=="string")||!Number.isSafeInteger(x.articles)||x.articles<0))throw Error();
+   const table=document.createElement("table"), title=document.createElement("h3");title.textContent="全66拠点の巡回状況";coverage.append(title);
+   for(const [i,vals] of [["ブランド","店舗","状態","最終試行 (UTC)","最終成功 (UTC)","保存記事数"],...d.coverage.map(x=>[x.brand,x.store,x.status,x.last_attempt,x.last_success,x.articles])].entries()){const tr=document.createElement("tr");for(const v of vals){const cell=document.createElement(i===0?"th":"td");cell.textContent=String(v);tr.append(cell);}table.append(tr);}coverage.append(table);
+   rows=next;choices(rule,rows.map(x=>x.rule));choices(review,rows.map(x=>x.status));
+   status.textContent="読込済みスナップショット："+String(d.finished_at)+" ／ 自動同期ではありません。";
+   render();
+  }catch{if(current===serial){rows=[];output.replaceChildren();coverage.replaceChildren();status.textContent="非公開監査ファイルを読み込めません。";}}
+ });
+}
+mountPrivateSnapshot();
