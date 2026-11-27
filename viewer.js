@@ -1,6 +1,8 @@
 "use strict";
 const byId=id=>document.getElementById(id);
 let epoch=0;
+// Not needed for this monitor (no image download, no review records): these counts are not shown.
+const HIDDEN_METRICS=new Set(["画像取得待ち","確認・対応記録","HCG確認未完了候補"]);
 
 /* Public aggregate: counts and run status only. No store names, articles or findings are ever published here. */
 async function openData(){
@@ -22,7 +24,7 @@ async function openData(){
   if(d.health)renderHealth(d.health,d.as_of);
   if(d.scope==="FIXTURE")renderFixtureStatus();
   if(d.scope==="PILOT_AGGREGATE")renderPilotStatus(d.audit_state,d.review_state,d.capture_scope);
-  for(const m of d.metrics){const a=document.createElement("article"),s=document.createElement("strong");a.textContent=String(m.label);s.textContent=String(m.value);a.append(s);byId("data").append(a);}
+  for(const m of d.metrics){if(HIDDEN_METRICS.has(m.label))continue;const a=document.createElement("article"),s=document.createElement("strong");a.textContent=String(m.label);s.textContent=String(m.value);a.append(s);byId("data").append(a);}
   byId("status").textContent=(d.scope==="STATUS_ONLY"?"実行状況のみ・監査集計未取得":d.scope==="FIXTURE"?"架空試験データ":d.scope==="PILOT_AGGREGATE"?"限定巡回の実測集計・法令監査未完了":"承認済み集計")+" / "+d.as_of+"\n0件は違反なしを意味しません。";
   byId("retry").textContent="最新情報を再取得";byId("retry").hidden=false;
  }catch{if(current===epoch){byId("data").replaceChildren();byId("detail").replaceChildren();byId("retry").textContent="もう一度読み込む";byId("retry").hidden=false;byId("status").textContent="データを読み込めません。通信状態を確認して、もう一度読み込んでください。";}}
@@ -46,9 +48,8 @@ function renderPilotStatus(state,reviewState="NOT_CONNECTED",captureScope="SIX_S
  if(!Object.hasOwn(states,state))throw Error();
  const root=byId("detail"),h=document.createElement("h2"),p=document.createElement("p"),table=document.createElement("table");
  h.textContent="運用状況";p.textContent=(captureScope==="ALL_STORES_CURRENT"?"全66拠点の先頭ページを対象にした開発試験です。各拠点で本文取得は最大2記事です。":"実サイトの限定巡回結果です。対象は1回6拠点です。")+"過去記事の網羅性と全投稿の新規・更新確認は未確認です。日時は取得元の実行完了時刻です。";
- const rows=[["工程","状態"],["ブログ取得","限定巡回・非公開DBへ保存"],["法令監査",states[state]],["画像監査","未完了"],["HCG確認・是正管理",reviewState==="GITHUB_HCG_ACTIONS"?"認証済みGitHubで対応記録可能・確認未完了":"未連携"],["OneDrive転送","未連携"]];
+ const rows=[["工程","状態"],["ブログ取得","限定巡回・非公開DBへ保存"],["法令監査",states[state]],["画像監査","未完了"]];
  rows.forEach((row,i)=>{const tr=document.createElement("tr");row.forEach(value=>{const cell=document.createElement(i===0?"th":"td");cell.textContent=value;if(i===0)cell.scope="col";tr.append(cell)});table.append(tr)});root.append(h,p,table);
- if(reviewState==="GITHUB_HCG_ACTIONS"){const a=document.createElement("a");a.textContent="管理者：GitHubで確認・対応を記録";a.href="https://github.com/MT-HCG/blog-compliance-monitor/actions/workflows/review-action.yml";a.rel="noreferrer";root.append(a);}
 }
 
 function renderHealth(health,asOf){
@@ -62,7 +63,7 @@ function renderHealth(health,asOf){
  const timing=document.createElement("p");timing.textContent="状況の取得日時："+new Date(checked).toLocaleString("ja-JP",{timeZone:"Asia/Tokyo"})+" JST"+(attempted===null?"":" ／ 直近の実行開始："+new Date(attempted).toLocaleString("ja-JP",{timeZone:"Asia/Tokyo"})+" JST");
  root.append(heading,p,timing);
  const link=document.createElement("a");link.textContent="巡回の実行履歴（GitHub）";link.href="https://github.com/MT-HCG/blog-compliance-monitor/actions/workflows/bounded-pilot.yml";link.rel="noreferrer";root.append(link);
- const help=document.createElement("p");help.textContent="店舗名・記事・該当箇所・検出理由・法令根拠・確認状況は、下の「監査詳細」に表示されます（管理者のMicrosoftサインインが必要です）。";root.append(help);
+ const help=document.createElement("p");help.textContent="店舗名・記事・該当箇所・検出理由・法令根拠は、下の「監査詳細」に表示されます（管理者のMicrosoftサインインが必要です）。";root.append(help);
  const now=Date.now(),date=/^(\d{4})\/(\d{2})\/(\d{2}) (\d{2}):(\d{2}) JST$/.exec(asOf);
  let dataTime=null;
  if(date)dataTime=Date.parse(`${date[1]}-${date[2]}-${date[3]}T${date[4]}:${date[5]}:00+09:00`);
@@ -80,7 +81,6 @@ const PRIVATE={
 };
 const GRAPH="https://graph.microsoft.com/v1.0";
 const EXPECTED_STORES=66, MAX_FINDINGS=2000, MAX_BYTES=10000000, PAGE=50, REFRESH_MS=30*60*1000;
-const REVIEW_STATES=["NEW","AWAITING_STORE","AWAITING_HCG","APPROVED","CLOSED"];
 const failure=code=>Object.assign(new Error(code),{code});
 const isText=(v,max=20000)=>typeof v==="string"&&v.length<=max;
 const isTextOrNull=(v,max=20000)=>v===null||v===undefined||isText(v,max);
@@ -96,8 +96,7 @@ function validateDetails(d){
  for(const x of d.findings){
   if(!x||typeof x!=="object"||!/^[0-9a-f]{32}$/.test(String(x.finding_id))||seen.has(x.finding_id))bad();
   seen.add(x.finding_id);
-  if(!["rule_id","outcome","review_label","legal_basis"].every(k=>isText(x[k]))||!["rule_name","rule_version","reason","article_title","first_detected_at","scope_note"].every(k=>isTextOrNull(x[k])))bad();
-  if(!REVIEW_STATES.includes(x.review_state))bad();
+  if(!["rule_id","outcome","legal_basis"].every(k=>isText(x[k]))||!["rule_name","rule_version","reason","article_title","first_detected_at","scope_note"].every(k=>isTextOrNull(x[k])))bad();
   if(!Array.isArray(x.stores)||x.stores.length>20||!x.stores.every(s=>isText(s,200)))bad();
   if(!Array.isArray(x.evidence)||x.evidence.length>50||!x.evidence.every(s=>isText(s,5000)))bad();
   if(!isTextOrNull(x.article_url,2000)||!isTextOrNull(x.legal_source_url,2000)||!isTextOrNull(x.legal_source_title,500))bad();
@@ -195,16 +194,16 @@ function mountPrivateDetails(){
  }
  function clearBody(){
   rows=[];data=null;ready=false;el("private-body").hidden=true;el("private-output").replaceChildren();el("private-coverage").replaceChildren();
-  for(const id of ["private-store","private-rule","private-review","private-outcome"])options(el(id),[]);
+  for(const id of ["private-store","private-rule","private-outcome"])options(el(id),[]);
   el("private-count").textContent="";el("private-meta").textContent="";el("private-more").hidden=true;
  }
  function card(x){
   const panel=document.createElement("details"),head=document.createElement("summary"),body=document.createElement("div");
   const stores=x.stores.join("・")||"店舗未確認";
-  head.textContent=stores+" ／ "+x.rule_id+" ／ "+x.review_label;
+  head.textContent=stores+" ／ "+x.rule_id+" ／ "+x.outcome;
   line(body,"店舗",stores);
   linkLine(body,"記事",x.article_title,x.article_url);
-  line(body,"記事の判定",x.outcome);line(body,"確認状況",x.review_label);
+  line(body,"記事の判定",x.outcome);
   line(body,"検出理由",blank(x.reason));
   const lead=document.createElement("p"),b=document.createElement("b");b.textContent="該当箇所";lead.append(b);body.append(lead);
   if(x.evidence.length===0){const p=document.createElement("p");p.textContent="引用未確認";body.append(p);}
@@ -219,8 +218,8 @@ function mountPrivateDetails(){
  }
  function filtered(){
   const q=el("private-search").value.normalize("NFKC").toLowerCase().trim();
-  const store=el("private-store").value,rule=el("private-rule").value,review=el("private-review").value,outcome=el("private-outcome").value;
-  return rows.filter(x=>(!store||x.stores.includes(store))&&(!rule||x.rule_id===rule)&&(!review||x.review_label===review)&&(!outcome||x.outcome===outcome)&&(!q||x.hay.includes(q)));
+  const store=el("private-store").value,rule=el("private-rule").value,outcome=el("private-outcome").value;
+  return rows.filter(x=>(!store||x.stores.includes(store))&&(!rule||x.rule_id===rule)&&(!outcome||x.outcome===outcome)&&(!q||x.hay.includes(q)));
  }
  function renderList(){
   const out=el("private-output");out.replaceChildren();
@@ -248,7 +247,7 @@ function mountPrivateDetails(){
    .sort((a,b)=>(Date.parse(b.first_detected_at)||0)-(Date.parse(a.first_detected_at)||0)||String(a.finding_id).localeCompare(String(b.finding_id)));
   limit=PAGE;
   options(el("private-store"),rows.flatMap(x=>x.stores));options(el("private-rule"),rows.map(x=>x.rule_id));
-  options(el("private-review"),rows.map(x=>x.review_label));options(el("private-outcome"),rows.map(x=>x.outcome));
+  options(el("private-outcome"),rows.map(x=>x.outcome));
   el("private-meta").textContent="巡回の実行完了 "+jst(d.finished_at)+" ／ 取得元 実行番号 "+d.source_run_id+" ／ 確認候補 "+d.finding_count+" 件。違反の最終判断はHCGが行います。";
   el("private-body").hidden=false;renderList();renderCoverage();ready=true;
  }
@@ -267,7 +266,7 @@ function mountPrivateDetails(){
    showOnly(code==="DENIED"||code==="AUTH"?["private-signin","private-signout"]:["private-reload","private-signout"]);
   }
  }
- for(const id of ["private-search","private-store","private-rule","private-review","private-outcome"])el(id).addEventListener(id==="private-search"?"input":"change",()=>{limit=PAGE;if(ready)renderList();});
+ for(const id of ["private-search","private-store","private-rule","private-outcome"])el(id).addEventListener(id==="private-search"?"input":"change",()=>{limit=PAGE;if(ready)renderList();});
  el("private-coverage-search").addEventListener("input",()=>{if(ready)renderCoverage();});
  el("private-more").addEventListener("click",()=>{limit+=PAGE;renderList();});
  el("private-signin").addEventListener("click",()=>Auth.signIn());
