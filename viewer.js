@@ -1,3 +1,4 @@
+const PUBLIC_AGGREGATE = true;
 "use strict";
 const byId=id=>document.getElementById(id);
 const bytes=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
@@ -13,20 +14,23 @@ async function openData(pass){
  const current=++epoch;byId("data").replaceChildren();byId("detail").replaceChildren();byId("lock").hidden=true;byId("retry").hidden=true;byId("view-gate").hidden=true;byId("status").textContent="読み込み中";
  let networkFailure=false;
  try{
-  if(!/^[A-Za-z0-9_-]{30,128}$/.test(pass.trim()))throw Error();
+  if(!(typeof PUBLIC_AGGREGATE!=="undefined"&&PUBLIC_AGGREGATE)&&!/^[A-Za-z0-9_-]{30,128}$/.test(pass.trim()))throw Error();
   let r,raw;
   try{
-   r=await fetch("blog-data.enc.json",{cache:"no-store",credentials:"omit",redirect:"error"});
+   r=await fetch(typeof PUBLIC_AGGREGATE!=="undefined"&&PUBLIC_AGGREGATE?"blog-data.public.json":"blog-data.enc.json",{cache:"no-store",credentials:"omit",redirect:"error"});
    if(!r.ok)throw Error();
    raw=await r.text();
   }catch{networkFailure=true;throw Error();}
   if(raw.length>2100000)throw Error();
+  let d;
+  if(typeof PUBLIC_AGGREGATE!=="undefined"&&PUBLIC_AGGREGATE){d=JSON.parse(raw);}else{
   const e=JSON.parse(raw);
   if(!e||typeof e!=="object"||typeof e.salt!=="string"||typeof e.iv!=="string"||typeof e.data!=="string")throw Error();
   if(e.v!==1||e.kdf!=="PBKDF2-SHA256"||e.iter!==310000||bytes(e.salt).length!==16||bytes(e.iv).length!==12||e.data.length>2000000)throw Error();
   const base=await crypto.subtle.importKey("raw",new TextEncoder().encode(pass.trim()),"PBKDF2",false,["deriveKey"]);
   const key=await crypto.subtle.deriveKey({name:"PBKDF2",hash:"SHA-256",salt:bytes(e.salt),iterations:310000},base,{name:"AES-GCM",length:256},false,["decrypt"]);
-  const d=JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name:"AES-GCM",iv:bytes(e.iv)},key,bytes(e.data))));
+  d=JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name:"AES-GCM",iv:bytes(e.iv)},key,bytes(e.data))));
+  }
   if(!d||typeof d!=="object"||typeof d.as_of!=="string"||d.as_of.length>160)throw Error();
   if(d.schema!==1||!["FIXTURE","APPROVED_AGGREGATE","PILOT_AGGREGATE","STATUS_ONLY"].includes(d.scope)||!Array.isArray(d.metrics))throw Error();
   if(current!==epoch)return;
@@ -37,16 +41,16 @@ async function openData(pass){
   if(d.scope==="PILOT_AGGREGATE")renderPilotStatus(d.audit_state,d.review_state,d.capture_scope);
   for(const m of d.metrics){const a=document.createElement("article"),s=document.createElement("strong");a.textContent=String(m.label);s.textContent=String(m.value);a.append(s);byId("data").append(a);}
   byId("status").textContent=(d.scope==="STATUS_ONLY"?"実行状況のみ・監査集計未取得":d.scope==="FIXTURE"?"架空試験データ":d.scope==="PILOT_AGGREGATE"?"限定巡回の実測集計・法令監査未完了":"承認済み集計")+" / "+d.as_of+"\n0件は違反なしを意味しません。";
-  byId("lock").hidden=false;
+  byId("lock").hidden=typeof PUBLIC_AGGREGATE!=="undefined"&&PUBLIC_AGGREGATE;
   byId("retry").textContent="最新情報を再取得";byId("retry").hidden=false;
- }catch{if(current===epoch){byId("data").replaceChildren();byId("detail").replaceChildren();byId("lock").hidden=true;byId("view-gate").hidden=false;byId("retry").textContent="もう一度読み込む";byId("retry").hidden=!retryPass;byId("status").textContent=networkFailure?"データを読み込めません。通信状態を確認して、もう一度読み込んでください。":"合言葉が違います。アイコンが古い場合は、管理者から新しい ZIP を受け取ってください。";}}
+ }catch{if(current===epoch){byId("data").replaceChildren();byId("detail").replaceChildren();byId("lock").hidden=true;byId("view-gate").hidden=typeof PUBLIC_AGGREGATE!=="undefined"&&PUBLIC_AGGREGATE;byId("retry").textContent="もう一度読み込む";byId("retry").hidden=false;byId("status").textContent=(networkFailure||typeof PUBLIC_AGGREGATE!=="undefined"&&PUBLIC_AGGREGATE)?"データを読み込めません。通信状態を確認して、もう一度読み込んでください。":"合言葉が違います。アイコンが古い場合は、管理者から新しい ZIP を受け取ってください。";}}
 }
 byId("unlock").addEventListener("submit",e=>{e.preventDefault();const p=byId("key").value;byId("key").value="";return openData(p);});
 byId("retry").onclick=()=>openData(retryPass);
 byId("lock").onclick=()=>{++epoch;retryPass="";byId("data").replaceChildren();byId("detail").replaceChildren();byId("status").textContent="閉じました";byId("lock").hidden=true;byId("retry").hidden=true;byId("view-gate").hidden=false;};
 // Preserve the fragment so a subsequently saved home-screen icon retains its key.
 const fragment=takeKey();
-const startup=fragment?openData(fragment):Promise.resolve();
+const startup=typeof PUBLIC_AGGREGATE!=="undefined"&&PUBLIC_AGGREGATE?openData(""):fragment?openData(fragment):Promise.resolve();
 
 function renderFixtureStatus(){
  const root=byId("detail"),h=document.createElement("h2"),p=document.createElement("p"),table=document.createElement("table");
