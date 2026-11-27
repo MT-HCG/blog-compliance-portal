@@ -57,7 +57,7 @@ function renderFixtureStatus(){
 function renderPilotStatus(state,reviewState="NOT_CONNECTED",captureScope="SIX_STORE_ROTATION"){
  if(!["SIX_STORE_ROTATION","ALL_STORES_CURRENT"].includes(captureScope))throw Error();
  if(!["NOT_CONNECTED","GITHUB_HCG_ACTIONS"].includes(reviewState))throw Error();
- const states={NO_ENABLED_TEXT_RULES:"法令基準の有効化待ち",SCOPED_TEXT_REVIEW:"価格・景品の本文限定・資料確認。総合監査未完了",LOCAL_MODEL_NOT_APPROVED:"判定モデルの検証待ち",RULE_SET_CHANGED:"基準変更により中断",PRIMARY_TEXT_ONLY:"本文一次判定のみ・総合監査未完了"};
+ const states={NO_ENABLED_TEXT_RULES:"法令基準の有効化待ち",SCOPED_TEXT_REVIEW:"法令本文の限定的な資料確認。総合監査未完了",LOCAL_MODEL_NOT_APPROVED:"判定モデルの検証待ち",RULE_SET_CHANGED:"基準変更により中断",PRIMARY_TEXT_ONLY:"本文一次判定のみ・総合監査未完了"};
  if(!Object.hasOwn(states,state))throw Error();
  const root=byId("detail"),h=document.createElement("h2"),p=document.createElement("p"),table=document.createElement("table");
  h.textContent="運用状況";p.textContent=(captureScope==="ALL_STORES_CURRENT"?"全66拠点の先頭ページを対象にした開発試験です。各拠点で本文取得は最大2記事です。":"実サイトの限定巡回結果です。対象は1回6拠点です。")+"過去記事の網羅性と全投稿の新規・更新確認は未確認です。日時は取得元の実行完了時刻です。";
