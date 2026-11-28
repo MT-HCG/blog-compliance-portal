@@ -80,7 +80,7 @@ const PRIVATE={
  scopes:["Files.Read"],
 };
 const GRAPH="https://graph.microsoft.com/v1.0";
-const EXPECTED_STORES=66, MAX_FINDINGS=2000, MAX_BYTES=10000000, PAGE=50, REFRESH_MS=30*60*1000;
+const EXPECTED_STORES=66, MAX_FINDINGS=2000, MAX_BYTES=10000000, REFRESH_MS=30*60*1000;
 const failure=code=>Object.assign(new Error(code),{code});
 const isText=(v,max=20000)=>typeof v==="string"&&v.length<=max;
 const isTextOrNull=(v,max=20000)=>v===null||v===undefined||isText(v,max);
@@ -98,6 +98,7 @@ function validateDetails(d){
   seen.add(x.finding_id);
   if(!["rule_id","outcome","legal_basis"].every(k=>isText(x[k]))||!["rule_name","rule_version","reason","article_title","first_detected_at","scope_note"].every(k=>isTextOrNull(x[k])))bad();
   if(!Array.isArray(x.stores)||x.stores.length>20||!x.stores.every(s=>isText(s,200)))bad();
+  if(x.post_id!==null&&x.post_id!==undefined&&!Number.isSafeInteger(x.post_id)&&!isText(x.post_id,200))bad();
   if(!Array.isArray(x.evidence)||x.evidence.length>50||!x.evidence.every(s=>isText(s,5000)))bad();
   if(!isTextOrNull(x.article_url,2000)||!isTextOrNull(x.legal_source_url,2000)||!isTextOrNull(x.legal_source_title,500))bad();
  }
@@ -184,7 +185,7 @@ function linkLine(parent,label,text,url){
 function mountPrivateDetails(){
  if(!byId("private-snapshot"))return;
  const el=byId;
- let rows=[],data=null,limit=PAGE,loadedAt=0,serial=0,ready=false;
+ let rows=[],data=null,loadedAt=0,serial=0,ready=false;
  const setStatus=m=>{el("private-status").textContent=m;};
  const showOnly=ids=>{for(const id of ["private-signin","private-switch","private-reload","private-signout"])el(id).hidden=!ids.includes(id);};
  function options(node,values){
@@ -195,14 +196,11 @@ function mountPrivateDetails(){
  function clearBody(){
   rows=[];data=null;ready=false;el("private-body").hidden=true;el("private-output").replaceChildren();el("private-coverage").replaceChildren();
   for(const id of ["private-store","private-rule","private-outcome"])options(el(id),[]);
-  el("private-count").textContent="";el("private-meta").textContent="";el("private-more").hidden=true;
+  el("private-count").textContent="";el("private-meta").textContent="";
  }
- function card(x){
+ function findingPanel(x){
   const panel=document.createElement("details"),head=document.createElement("summary"),body=document.createElement("div");
-  const stores=x.stores.join("・")||"店舗未確認";
-  head.textContent=stores+" ／ "+x.rule_id+" ／ "+x.outcome;
-  line(body,"店舗",stores);
-  linkLine(body,"記事",x.article_title,x.article_url);
+  head.textContent=x.rule_id+" ／ "+x.outcome;
   line(body,"記事の判定",x.outcome);
   line(body,"検出理由",blank(x.reason));
   const lead=document.createElement("p"),b=document.createElement("b");b.textContent="該当箇所";lead.append(b);body.append(lead);
@@ -216,6 +214,38 @@ function mountPrivateDetails(){
   line(body,"候補ID",String(x.finding_id));
   panel.append(head,body);return panel;
  }
+ function articleBlock(a){
+  const box=document.createElement("div");box.className="article-block";
+  linkLine(box,"記事",a.title,a.url);
+  for(const x of a.items)box.append(findingPanel(x));
+  return box;
+ }
+ // Store -> article -> rule. One article hit by several rules is one article; a post shared by stores shows under each.
+ function groupByStore(list){
+  const byStore=new Map();
+  for(const x of list){
+   for(const s of (x.stores.length?x.stores:["店舗未確認"])){
+    if(!byStore.has(s))byStore.set(s,new Map());
+    const arts=byStore.get(s),key=String(x.post_id??x.finding_id);
+    if(!arts.has(key))arts.set(key,{title:x.article_title,url:x.article_url,at:0,items:[]});
+    const a=arts.get(key);a.items.push(x);a.at=Math.max(a.at,Date.parse(x.first_detected_at)||0);
+   }
+  }
+  return [...byStore].map(([store,arts])=>{
+   const articles=[...arts.values()].sort((p,q)=>q.at-p.at);
+   for(const a of articles)a.items.sort((p,q)=>String(p.rule_id).localeCompare(String(q.rule_id),"ja"));
+   return {store,articles,count:articles.reduce((n,a)=>n+a.items.length,0)};
+  }).sort((p,q)=>q.count-p.count||p.store.localeCompare(q.store,"ja"));
+ }
+ function storePanel(g,open){
+  const panel=document.createElement("details"),head=document.createElement("summary"),body=document.createElement("div");
+  head.textContent=g.store+" ／ "+g.articles.length+" 記事 ／ "+g.count+" 件";
+  let filled=false;
+  const fill=()=>{if(filled)return;filled=true;for(const a of g.articles)body.append(articleBlock(a));}; // built when opened: keeps a large list light
+  panel.addEventListener("toggle",()=>{if(panel.open)fill();});
+  if(open)fill();
+  panel.open=open;panel.append(head,body);return panel;
+ }
  function filtered(){
   const q=el("private-search").value.normalize("NFKC").toLowerCase().trim();
   const store=el("private-store").value,rule=el("private-rule").value,outcome=el("private-outcome").value;
@@ -223,10 +253,12 @@ function mountPrivateDetails(){
  }
  function renderList(){
   const out=el("private-output");out.replaceChildren();
-  const list=filtered();
-  el("private-count").textContent=list.length+" / "+rows.length+" 件"+(list.length>limit?"（新しい順に "+limit+" 件を表示）":"");
-  for(const x of list.slice(0,limit))out.append(card(x));
-  el("private-more").hidden=list.length<=limit;
+  const list=filtered(),store=el("private-store").value;
+  let groups=groupByStore(list);
+  if(store)groups=groups.filter(g=>g.store===store);
+  const articles=groups.reduce((n,g)=>n+g.articles.length,0);
+  el("private-count").textContent=list.length+" / "+rows.length+" 件（"+groups.length+" 拠点・"+articles+" 記事）";
+  for(const g of groups)out.append(storePanel(g,groups.length===1));
  }
  function renderCoverage(){
   const host=el("private-coverage");host.replaceChildren();
@@ -245,7 +277,6 @@ function mountPrivateDetails(){
   data=d;
   rows=d.findings.map(x=>({...x,hay:[x.stores.join(" "),x.article_title,x.rule_id,x.rule_name,x.finding_id,x.reason].map(v=>blank(v,"")).join(" ").normalize("NFKC").toLowerCase()}))
    .sort((a,b)=>(Date.parse(b.first_detected_at)||0)-(Date.parse(a.first_detected_at)||0)||String(a.finding_id).localeCompare(String(b.finding_id)));
-  limit=PAGE;
   options(el("private-store"),rows.flatMap(x=>x.stores));options(el("private-rule"),rows.map(x=>x.rule_id));
   options(el("private-outcome"),rows.map(x=>x.outcome));
   el("private-meta").textContent="巡回の実行完了 "+jst(d.finished_at)+" ／ 取得元 実行番号 "+d.source_run_id+" ／ 確認候補 "+d.finding_count+" 件。違反の最終判断はHCGが行います。";
@@ -266,9 +297,8 @@ function mountPrivateDetails(){
    showOnly(code==="DENIED"||code==="AUTH"?["private-signin","private-signout"]:["private-reload","private-signout"]);
   }
  }
- for(const id of ["private-search","private-store","private-rule","private-outcome"])el(id).addEventListener(id==="private-search"?"input":"change",()=>{limit=PAGE;if(ready)renderList();});
+ for(const id of ["private-search","private-store","private-rule","private-outcome"])el(id).addEventListener(id==="private-search"?"input":"change",()=>{if(ready)renderList();});
  el("private-coverage-search").addEventListener("input",()=>{if(ready)renderCoverage();});
- el("private-more").addEventListener("click",()=>{limit+=PAGE;renderList();});
  el("private-signin").addEventListener("click",()=>Auth.signIn());
  el("private-switch").addEventListener("click",()=>Auth.switchAccount());
  el("private-signout").addEventListener("click",()=>Auth.signOut());
